@@ -7,6 +7,7 @@
 #include <function_wrapper.hh>
 #include <locks.hh>
 #include <unwind.h>
+#include <NetAPI.h>
 
 /**
  * Internal helpers and data structures for use inside of the TCP/IP
@@ -42,6 +43,12 @@ struct SealedSocket
 	 * to the current instance of the network stack.
 	 */
 	uint64_t socketEpoch;
+	/**
+	 * EventWaiterSource futex array. This is used to support the multiwaiter
+	 * feature. Different event will increment different futex in the
+	 * array, wake the corresponding waiting threads
+	 */
+	cheriot::atomic<uint32_t> eventFutexState[NUM_FUTEX_TYPES];
 	/**
 	 * The lock protecting this socket.
 	 */

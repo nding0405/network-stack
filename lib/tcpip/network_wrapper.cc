@@ -456,6 +456,24 @@ static void on_tcp_connect(Socket_t socket, BaseType_t isConnected)
 			firewall_remove_tcpipv4_remote_endpoint(
 			  address.sin_address.ulIP_IPv4, localPort, address.sin_port);
 		}
+	} else {
+		/**
+		 * Here we want to update the eventFutexState in the listening socket
+		 * and wake up the threads sleeping on the corresponding futex.
+		 */
+
+		/**
+		 * use the FreeRTOS getter to get the wrapper capability we stored to it.
+		 */
+		auto *wrapper = static_cast<SealedSocket *>(pvSocketGetSocketID(socket));
+		if (wrapper != nullptr)
+		{
+			wrapper->eventFutexState[SocketEventType::SocketAcceptEvent]
+			  .fetch_add(1);
+			wrapper->eventFutexState[SocketEventType::SocketAcceptEvent]
+			  .notify_all(); // implicitly call futex_wake();
+		}
+		return;
 	}
 }
 F_TCP_UDP_Handler_t onTCPConnectCallback = {on_tcp_connect};
@@ -484,6 +502,11 @@ Socket network_socket_create_and_bind(Timeout            *timeout,
 
 		  // Set the socket epoch
 		  socketWrapper->socketEpoch = currentSocketEpoch.load();
+		  // Multiwaiter: initialize the futexes.
+		  for (size_t i = 0; i < NUM_FUTEX_TYPES; i++)
+		  {
+			  socketWrapper->eventFutexState[i].store(0);
+		  }
 
 		  const auto Family = isIPv6 ? FREERTOS_AF_INET6 : FREERTOS_AF_INET;
 		  Socket_t   socket =
@@ -501,7 +524,14 @@ Socket network_socket_create_and_bind(Timeout            *timeout,
 			  token_obj_destroy(mallocCapability, socket_key(), sealedSocket);
 			  return -ENOMEM;
 		  }
+
+		  /**
+		   * bidirectional association between the FreeRTOS socket and the sealed socket
+		   * wrapper. This is used to retrieve the sealed socket wrapper from the
+		   * FreeRTOS socket in the callbacks.
+		   */
 		  socketWrapper->socket = socket;
+		  xSocketSetSocketID(socket, socketWrapper);
 
 		  // Claim the socket so that it counts towards the caller's quota.  The
 		  // network stack also keeps a claim to it.  We will drop this claim on
@@ -662,6 +692,9 @@ Socket network_socket_accept_tcp(Timeout            *timeout,
 			  token_obj_destroy(mallocCapability, socket_key(), sealedSocket);
 			  return acceptResult;
 		  }
+		  listeningSocket
+		    ->eventFutexState[SocketEventType::SocketAcceptEvent]
+		    .fetch_sub(1);
 		  socketWrapper->socket = rawSocket;
 
 		  // Claim the socket so that it counts towards the caller's quota.  The
@@ -813,6 +846,35 @@ Socket network_socket_udp(Timeout            *timeout,
 	  timeout, mallocCapability, isIPv6, ConnectionTypeUDP);
 }
 
+uint32_t *network_socket_get_event_source(Socket          sealedSocket,
+                                          SocketEventType type)
+{
+	uint32_t *result = nullptr;
+
+	with_sealed_socket(
+	  [&](SealedSocket *socket) {
+		  auto *futex =
+		    reinterpret_cast<uint32_t *>(&socket->eventFutexState[type]);
+
+		  Capability readyOnlyEventSource{futex};
+		  /**
+		   * restrict the capability, this is read only,
+		   * the futex can only be modified through the
+		   * callback, but not the caller of this helper
+		   * function.
+		   */
+		  readyOnlyEventSource.bounds() = sizeof(uint32_t);
+		  readyOnlyEventSource.permissions() &=
+		    {Permission::Load, Permission::Global};
+
+		  result = readyOnlyEventSource.get();
+		  return 0;
+	  },
+	  sealedSocket);
+
+	return result;
+}
+
 int network_socket_close(Timeout            *t,
                          AllocatorCapability mallocCapability,
                          Socket              sealedSocket)
@@ -862,6 +924,11 @@ int network_socket_close(Timeout            *t,
 			  if (socket->socketEpoch == currentSocketEpoch.load())
 			  {
 				  auto rawSocket = socket->socket;
+
+				  // Set the back pointer (pointing to the
+				  // wrapper) to nullptr, so that we will not
+				  // have a dangling pointer.
+				  xSocketSetSocketID(rawSocket, nullptr);
 
 				  // Do not bother with the return value:
 				  // `FreeRTOS_shutdown` fails if the TCP
@@ -968,6 +1035,14 @@ int network_socket_close(Timeout            *t,
 					  // task. With some luck, the socket can be
 					  // freed next time we try.
 					  return -ETIMEDOUT;
+				  }
+				  // Wake any thread waiting on this socket's event futex so
+			      // that it does not sleep forever on memory that is about to
+				  // be freed.
+				  for (size_t i = 0; i < NUM_FUTEX_TYPES; i++)
+				  {
+					  socket->eventFutexState[i].fetch_add(1);
+					  socket->eventFutexState[i].notify_all();
 				  }
 
 				  g.release();

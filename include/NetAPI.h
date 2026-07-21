@@ -35,6 +35,19 @@ struct NetworkAddress
 };
 
 /**
+ * Futex types in a socket.
+ *
+ */
+enum SocketEventType : uint8_t
+{
+	SocketAcceptEvent = 0,  // Triggered when a new TCP connection is accepted on a listening socket
+	SocketReceiveEvent = 1, // Triggered when data is received on a socket
+	SocketSendEvent = 2     // Triggered when a socket has space available for sending
+};
+
+static constexpr size_t NUM_FUTEX_TYPES = 3;
+
+/**
  * Enumeration defining the connection type.
  */
 enum ConnectionType : uint8_t
@@ -267,6 +280,14 @@ Socket __cheri_compartment("TCPIP")
   network_socket_udp(Timeout            *timeout,
                      AllocatorCapability mallocCapability,
                      bool                isIPv6);
+
+/**
+ * Return the event source associated with a socket.
+ *
+ * The returned capability is read-only and bounded to four bytes.
+ */
+uint32_t *__cheri_compartment("TCPIP")
+  network_socket_get_event_source(Socket sealedSocket, SocketEventType type);
 
 /**
  * Authorise a UDP socket to send packets to a specific host.  This opens a

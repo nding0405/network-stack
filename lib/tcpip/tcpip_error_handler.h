@@ -195,6 +195,26 @@ extern "C" void reset_network_stack_state(bool isIpThread)
 				DebugErrorHandler::log("Ignoring corrupted socket lock {}.",
 				                       lock);
 			}
+			/**
+			 * Notify all threads waiting on the socket's futexes so that they do not
+			 * sleep forever on this old socket.
+			 */
+			for (size_t i = 0; i < NUM_FUTEX_TYPES; i++)
+			{
+				if (Capability{&(socket->eventFutexState[i])}.is_valid())
+				{
+					socket->eventFutexState[i].store(1);
+					socket->eventFutexState[i].notify_all();
+				}
+				else
+				{
+					// Theoretically that should not happen, since the futex capability
+					// will only be invalid when the socket capability is invalid (it
+					// inherits the socket capability).
+					DebugErrorHandler::log(
+					  "Socket {} has corrupted futex {}.", socket, i);
+				}
+			}
 
 			FreeRTOS_Socket_t *s = socket->socket;
 			if (Capability{s}.is_valid() &&
