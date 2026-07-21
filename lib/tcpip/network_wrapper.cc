@@ -614,7 +614,8 @@ Socket network_socket_accept_tcp(Timeout            *timeout,
                                  uint16_t           *port)
 {
 	Socket socket = nullptr;
-	with_sealed_socket(
+	int retVal = with_sealed_socket(
+	   timeout,
 	  [&](SealedSocket *listeningSocket) {
 		  if (!check_timeout_pointer(timeout))
 		  {
@@ -627,24 +628,39 @@ Socket network_socket_accept_tcp(Timeout            *timeout,
 		  if (socketWrapper == nullptr)
 		  {
 			  Debug::log("Failed to allocate socket wrapper.");
-			  return -EINVAL;
+			  return -ENOMEM;
 		  }
 
 		  socketWrapper->socketEpoch = currentSocketEpoch.load();
 
 		  struct freertos_sockaddr addressTmp;
 		  uint32_t                 addressLength = sizeof(addressTmp);
-		  auto                     rawSocket     = FreeRTOS_accept(
-		    listeningSocket->socket, &addressTmp, &addressLength);
-		  if (rawSocket == nullptr)
+		  FreeRTOS_Socket_t *rawSocket = nullptr;
+
+		  // acceptResult: 0 = valid socket || -EINVAL = FREERTOS_INVALID_SOCKET ||
+		  // -ETIMEDOUT = timed out
+		  int acceptResult = with_freertos_timeout(
+			timeout,
+			listeningSocket->socket,
+			FREERTOS_SO_RCVTIMEO,
+			[&]() -> int {
+				rawSocket = FreeRTOS_accept(
+					listeningSocket->socket, &addressTmp, &addressLength);
+				if (rawSocket == nullptr)
+				{
+					return -ETIMEDOUT;
+				}
+				if (rawSocket == FREERTOS_INVALID_SOCKET)
+				{
+					return -EINVAL;
+				}
+				return 0; // returns a valid socket
+		  });
+
+		  if (acceptResult != 0)
 		  {
-			  Debug::log("Failed to create socket.");
-			  // This cannot fail unless buggy - we know that we
-			  // successfully allocated the token with this malloc
-			  // capability. Same for other calls to `token_obj_destroy`
-			  // in this function.
 			  token_obj_destroy(mallocCapability, socket_key(), sealedSocket);
-			  return -EINVAL;
+			  return acceptResult;
 		  }
 		  socketWrapper->socket = rawSocket;
 
@@ -726,6 +742,12 @@ Socket network_socket_accept_tcp(Timeout            *timeout,
 		  return 0;
 	  },
 	  sealedListeningSocket);
+
+	if (retVal != 0)
+	{
+		return (SealedSocket * __sealed_capability) retVal;
+	}
+
 	return socket;
 }
 
