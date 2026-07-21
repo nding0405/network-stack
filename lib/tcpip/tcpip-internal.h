@@ -50,6 +50,8 @@ struct SealedSocket
 	 * wake the corresponding waiting threads.
 	 */
 	std::atomic<uint32_t> eventFutexState[NumFutexTypes];
+	int                   signal_event_futex(SocketEventType type);
+	int                   consume_event_futex(SocketEventType type);
 	/**
 	 * The lock protecting this socket.
 	 */

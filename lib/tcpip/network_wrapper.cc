@@ -396,68 +396,46 @@ namespace
 		return ret;
 	}
 
-	/**
-	 * Increments the futex and notifies all waiters if the futex is still
-	 * valid.
-	 *
-	 * Returns 0 on success, or -EINVAL if the futex has been invalidated.
-	 */
-	int signal_event_futex(cheriot::atomic<uint32_t> &futex)
-	{
-		/*
-		 * An ephemeral call is needed here to prevent UAF on
-		 * futex.load();
-		 */
-		Timeout timeout{UnlimitedTimeout};
-		if (heap_claim_ephemeral(&timeout, &futex) != 0)
-		{
-			return -EINVAL;
-		}
-		uint32_t current = futex.load();
-		while (current != SocketNotAvailable)
-		{
-			/*
-			 * If the futex's current value equals current,
-			 * store current + 1 and return true. Otherwise
-			 * write the actual current value into current
-			 * (by reference) and return false.
-			 */
-			if (futex.compare_exchange_strong(current, current + 1))
-			{
-				futex.notify_all();
-				return 0;
-			}
-		}
+} // namespace
 
+int SealedSocket::signal_event_futex(SocketEventType type)
+{
+	auto &futex = eventFutexState[type];
+	if (heap_claim_ephemeral(TimeoutWaitForever, &futex) != 0)
+	{
 		return -EINVAL;
 	}
-
-	/**
-	 * Consume one pending event by decrementing the futex.
-	 *
-	 * Returns 0 whenever the futex is still valid, no matter an event was
-	 * actually consumed (counter was non-zero) or there was nothing pending
-	 * (counter was zero). By the time this is called the caller must have
-	 * already consume the event , this is just the bookkeeping, so futex equals
-	 * to 0 is not an error. Returns -EINVAL only if the futex has been
-	 * invalidated (set to SocketNotAvailable) because the socket will be torn
-	 * down soon.
-	 */
-	int consume_event_futex(cheriot::atomic<uint32_t> &futex)
+	uint32_t current = futex.load();
+	while (current != SocketNotAvailable)
 	{
-		uint32_t current = futex.load();
-		while (current != SocketNotAvailable && current != 0)
+		if (futex.compare_exchange_strong(current, current + 1))
 		{
-			if (futex.compare_exchange_strong(current, current - 1))
-			{
-				return 0;
-			}
+			futex.notify_all();
+			return 0;
 		}
-
-		return (current == SocketNotAvailable) ? -EINVAL : 0;
 	}
 
-} // namespace
+	return -EINVAL;
+}
+
+/**
+ * The caller must hold socketLock, which prevents the SealedSocket from being
+ * deallocated while this method accesses the futex.
+ */
+int SealedSocket::consume_event_futex(SocketEventType type)
+{
+	auto    &futex   = eventFutexState[type];
+	uint32_t current = futex.load();
+	while (current != SocketNotAvailable && current != 0)
+	{
+		if (futex.compare_exchange_strong(current, current - 1))
+		{
+			return 0;
+		}
+	}
+
+	return (current == SocketNotAvailable) ? -EINVAL : 0;
+}
 
 /**
  * Callback called by FreeRTOS+TCP when a TCP connection is created or
@@ -527,8 +505,7 @@ static void on_tcp_connect(Socket_t socket, BaseType_t isConnected)
 			 * Ignore the return value. If the socket has been invalidated,
 			 * the subsequent accept call will detect that it is unavailable.
 			 */
-			signal_event_futex(
-			  wrapper->eventFutexState[SocketEventType::SocketAcceptEvent]);
+			wrapper->signal_event_futex(SocketEventType::SocketAcceptEvent);
 		}
 		return;
 	}
@@ -757,9 +734,8 @@ Socket network_socket_accept_tcp(Timeout            *timeout,
 		   * to wake the threads up, since they will probably find that there is
 		   * no available sockets and go back to sleep again.
 		   */
-		  int futexConsumeResult = consume_event_futex(
-		    listeningSocket
-		      ->eventFutexState[SocketEventType::SocketAcceptEvent]);
+		  int futexConsumeResult = listeningSocket->consume_event_futex(
+		    SocketEventType::SocketAcceptEvent);
 		  if (futexConsumeResult != 0)
 		  {
 			  // Return -EINVAL, which represents the
