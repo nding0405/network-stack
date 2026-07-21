@@ -395,6 +395,68 @@ namespace
 
 		return ret;
 	}
+
+	/**
+	 * Increments the futex and notifies all waiters if the futex is still
+	 * valid.
+	 *
+	 * Returns 0 on success, or -EINVAL if the futex has been invalidated.
+	 */
+	int signal_event_futex(cheriot::atomic<uint32_t> &futex)
+	{
+		/*
+		 * An ephemeral call is needed here to prevent UAF on
+		 * futex.load();
+		 */
+		Timeout timeout{UnlimitedTimeout};
+		if (heap_claim_ephemeral(&timeout, &futex) != 0)
+		{
+			return -EINVAL;
+		}
+		uint32_t current = futex.load();
+		while (current != SocketNotAvailable)
+		{
+			/*
+			 * If the futex's current value equals current,
+			 * store current + 1 and return true. Otherwise
+			 * write the actual current value into current
+			 * (by reference) and return false.
+			 */
+			if (futex.compare_exchange_strong(current, current + 1))
+			{
+				futex.notify_all();
+				return 0;
+			}
+		}
+
+		return -EINVAL;
+	}
+
+	/**
+	 * Consume one pending event by decrementing the futex.
+	 *
+	 * Returns 0 whenever the futex is still valid, no matter an event was
+	 * actually consumed (counter was non-zero) or there was nothing pending
+	 * (counter was zero). By the time this is called the caller must have
+	 * already consume the event , this is just the bookkeeping, so futex equals
+	 * to 0 is not an error. Returns -EINVAL only if the futex has been
+	 * invalidated (set to SocketNotAvailable) because the socket will be torn
+	 * down soon.
+	 */
+	int consume_event_futex(cheriot::atomic<uint32_t> &futex)
+	{
+		uint32_t current = futex.load();
+		while (current != SocketNotAvailable && current != 0)
+		{
+			if (futex.compare_exchange_strong(current, current - 1))
+			{
+				return 0;
+			}
+		}
+
+		return (current == SocketNotAvailable) ? -EINVAL : 0;
+	}
+
 } // namespace
 
 /**
@@ -451,6 +513,25 @@ static void on_tcp_connect(Socket_t socket, BaseType_t isConnected)
 			  address.sin_address.ulIP_IPv4, localPort, address.sin_port);
 		}
 	}
+	else
+	{
+		// Update eventFutexState in the listening socket and wake up the
+		// threads sleeping on the corresponding futex.
+		// Use the FreeRTOS getter to get the wrapper capability we stored in
+		// it.
+		auto *wrapper =
+		  static_cast<SealedSocket *>(pvSocketGetSocketID(socket));
+		if (wrapper != nullptr)
+		{
+			/*
+			 * Ignore the return value. If the socket has been invalidated,
+			 * the subsequent accept call will detect that it is unavailable.
+			 */
+			signal_event_futex(
+			  wrapper->eventFutexState[SocketEventType::SocketAcceptEvent]);
+		}
+		return;
+	}
 }
 F_TCP_UDP_Handler_t onTCPConnectCallback = {on_tcp_connect};
 
@@ -478,6 +559,11 @@ Socket network_socket_create_and_bind(Timeout            *timeout,
 
 		  // Set the socket epoch
 		  socketWrapper->socketEpoch = currentSocketEpoch.load();
+		  // Multi-waiter: initialize the futexes.
+		  for (auto &eventState : socketWrapper->eventFutexState)
+		  {
+			  eventState.store(0);
+		  }
 
 		  const auto Family = isIPv6 ? FREERTOS_AF_INET6 : FREERTOS_AF_INET;
 		  Socket_t   socket =
@@ -495,7 +581,14 @@ Socket network_socket_create_and_bind(Timeout            *timeout,
 			  token_obj_destroy(mallocCapability, socket_key(), sealedSocket);
 			  return -ENOMEM;
 		  }
+
+		  /*
+		   * Create a bidirectional association between the FreeRTOS socket and
+		   * the sealed socket wrapper. This is used to retrieve the sealed
+		   * socket wrapper from the FreeRTOS socket in the callbacks.
+		   */
 		  socketWrapper->socket = socket;
+		  xSocketSetSocketID(socket, socketWrapper);
 
 		  // Claim the socket so that it counts towards the caller's quota.  The
 		  // network stack also keeps a claim to it.  We will drop this claim on
@@ -656,6 +749,25 @@ Socket network_socket_accept_tcp(Timeout            *timeout,
 			  token_obj_destroy(mallocCapability, socket_key(), sealedSocket);
 			  return acceptResult;
 		  }
+		  /*
+		   * Note that here we update the futex, but no need to call
+		   * notify_all() on the waiting threads. Because the threads are
+		   * waiting on multiwaiter for arriving connected socket, but here the
+		   * semantics is not having an arrving connection. So there is no need
+		   * to wake the threads up, since they will probably find that there is
+		   * no available sockets and go back to sleep again.
+		   */
+		  int futexConsumeResult = consume_event_futex(
+		    listeningSocket
+		      ->eventFutexState[SocketEventType::SocketAcceptEvent]);
+		  if (futexConsumeResult != 0)
+		  {
+			  // Return -EINVAL, which represents the
+			  // socket will be freed soon.
+			  close_socket_retry(timeout, rawSocket);
+			  token_obj_destroy(mallocCapability, socket_key(), sealedSocket);
+			  return futexConsumeResult;
+		  }
 		  socketWrapper->socket = rawSocket;
 
 		  // Claim the socket so that it counts towards the caller's quota.  The
@@ -810,6 +922,37 @@ Socket network_socket_udp(Timeout            *timeout,
 	  timeout, mallocCapability, isIPv6, ConnectionTypeUDP);
 }
 
+/**
+ * Getter to get the read only capability of a specific futex in
+ * specific socket. If the futex is invalid, return a untagged nullptr.
+ */
+uint32_t *network_socket_get_event_source(Socket          sealedSocket,
+                                          SocketEventType type)
+{
+	uint32_t *result = nullptr;
+	if (type < NumFutexTypes)
+	{
+		with_sealed_socket(
+		  [&](SealedSocket *socket) {
+			  auto *futex =
+			    reinterpret_cast<uint32_t *>(&socket->eventFutexState[type]);
+
+			  Capability readyOnlyEventSource{futex};
+			  // Restrict the capability to read-only so the futex can only be
+			  // modified through the callback, not by the caller of this
+			  // helper.
+			  readyOnlyEventSource.bounds() = sizeof(uint32_t);
+			  readyOnlyEventSource.permissions() &=
+			    {Permission::Load, Permission::Global};
+
+			  result = readyOnlyEventSource.get();
+			  return 0;
+		  },
+		  sealedSocket);
+	}
+	return result;
+}
+
 int network_socket_close(Timeout            *t,
                          AllocatorCapability mallocCapability,
                          Socket              sealedSocket)
@@ -872,6 +1015,12 @@ int network_socket_close(Timeout            *t,
 			  if (socketEpoch == currentSocketEpoch.load())
 			  {
 				  bool isTCP = rawSocket->ucProtocol == FREERTOS_IPPROTO_TCP;
+
+				  // Set the back pointer (pointing to the
+				  // wrapper) to nullptr, so that we will not
+				  // have a dangling pointer.
+				  xSocketSetSocketID(rawSocket, nullptr);
+
 				  // Nothing to do if `FreeRTOS_shutdown`
 				  // fails: this happens only if the TCP
 				  // connection is dead, which is likely to
@@ -1018,6 +1167,14 @@ int network_socket_close(Timeout            *t,
 					  // task. With some luck, the socket can be
 					  // freed next time we try.
 					  return -ETIMEDOUT;
+				  }
+				  // Wake any thread waiting on this socket's event futex so
+				  // that it does not sleep forever on memory that is about to
+				  // be freed.
+				  for (auto &eventState : socket->eventFutexState)
+				  {
+					  eventState.store(SocketNotAvailable);
+					  eventState.notify_all();
 				  }
 
 				  g.release();
