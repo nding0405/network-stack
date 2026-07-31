@@ -405,7 +405,7 @@ int SealedSocket::signal_event_futex(SocketEventType type)
 	{
 		return -EINVAL;
 	}
-	uint32_t current = futex.load();
+	int32_t current = futex.load();
 	while (current != SocketNotAvailable)
 	{
 		/*
@@ -426,9 +426,9 @@ int SealedSocket::signal_event_futex(SocketEventType type)
 
 int SealedSocket::consume_event_futex(SocketEventType type)
 {
-	auto    &futex   = eventFutexState[type];
-	uint32_t current = futex.load();
-	while (current != SocketNotAvailable && current != 0)
+	auto   &futex   = eventFutexState[type];
+	int32_t current = futex.load();
+	while (current != SocketNotAvailable)
 	{
 		if (futex.compare_exchange_strong(current, current - 1))
 		{

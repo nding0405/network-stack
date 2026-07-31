@@ -49,7 +49,7 @@ struct SealedSocket
 	 * feature. Different events increment different futexes in the array and
 	 * wake the corresponding waiting threads.
 	 */
-	std::atomic<uint32_t> eventFutexState[NumFutexTypes];
+	std::atomic<int32_t> eventFutexState[NumFutexTypes];
 	/**
 	 * Increments the futex and notifies all waiters if the futex is still
 	 * valid.
