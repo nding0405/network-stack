@@ -74,7 +74,7 @@ namespace
 
 } // namespace
 
-void __cheri_compartment("TCPIP") network_start()
+void __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP) network_start()
 {
 	// Guard aginst multiple calls
 	uint32_t expected = Uninitialised;

@@ -159,7 +159,7 @@ typedef CHERI_SEALED(struct SealedSocket *) Socket;
 	DECLARE_AND_DEFINE_STATIC_SEALED_VALUE_EXPLICIT_TYPE(                      \
 	  struct ConnectionCapabilityState##name,                                  \
 	  ConnectionCapabilityState,                                               \
-	  NetAPI,                                                                  \
+	  CHERIOT_NETWORK_COMPARTMENT_NETAPI_TOKEN,                                \
 	  NetworkConnectionKey,                                                    \
 	  name,                                                                    \
 	  connectionType,                                                          \
@@ -194,7 +194,7 @@ typedef CHERI_SEALED(struct SealedSocket *) Socket;
 	DECLARE_AND_DEFINE_STATIC_SEALED_VALUE_EXPLICIT_TYPE(                      \
 	  struct BindCapabilityState##name,                                        \
 	  BindCapabilityState,                                                     \
-	  NetAPI,                                                                  \
+	  CHERIOT_NETWORK_COMPARTMENT_NETAPI_TOKEN,                                \
 	  NetworkBindKey,                                                          \
 	  name,                                                                    \
 	  isIPv6Binding,                                                           \
@@ -205,7 +205,7 @@ typedef CHERI_SEALED(struct SealedSocket *) Socket;
  * Start the network.  This is a temporary API.  It will eventually be replaced
  * by a non-blocking version.
  */
-void __cheri_compartment("TCPIP") network_start(void);
+void __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP) network_start(void);
 
 /**
  * Create a connected TCP socket.
@@ -222,7 +222,7 @@ void __cheri_compartment("TCPIP") network_start(void);
  * This returns a valid sealed capability to a socket on success, or an
  * untagged value on failure.
  */
-Socket __cheri_compartment("NetAPI")
+Socket __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_NETAPI)
   network_socket_connect_tcp(Timeout             *timeout,
                              AllocatorCapability  mallocCapability,
                              ConnectionCapability hostCapability);
@@ -239,7 +239,7 @@ Socket __cheri_compartment("NetAPI")
  * This returns a valid sealed capability to a socket on success, or an
  * untagged value on failure.
  */
-Socket __cheri_compartment("NetAPI")
+Socket __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_NETAPI)
   network_socket_listen_tcp(Timeout            *timeout,
                             AllocatorCapability mallocCapability,
                             BindCapability      bindCapability);
@@ -263,7 +263,7 @@ Socket __cheri_compartment("NetAPI")
  * fail to add socket to the socket reset list,
  * - `-ETIMEDOUT`: timed out on FreeRTOS_accept.
  */
-Socket __cheri_compartment("TCPIP")
+Socket __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_accept_tcp(Timeout            *timeout,
                             AllocatorCapability mallocCapability,
                             Socket              listeningSocket,
@@ -283,7 +283,7 @@ Socket __cheri_compartment("TCPIP")
  * This returns a valid sealed capability to a socket on success, or an
  * untagged value on failure.
  */
-Socket __cheri_compartment("TCPIP")
+Socket __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_udp(Timeout            *timeout,
                      AllocatorCapability mallocCapability,
                      bool                isIPv6);
@@ -293,7 +293,7 @@ Socket __cheri_compartment("TCPIP")
  *
  * The returned capability is read-only and bounded to four bytes.
  */
-uint32_t *__cheri_compartment("TCPIP")
+uint32_t *__cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_get_event_source(Socket sealedSocket, SocketEventType type);
 
 /**
@@ -311,7 +311,7 @@ uint32_t *__cheri_compartment("TCPIP")
  * to existing code.  Instead, we treat the socket as a capability and this as
  * an operation that adds a permission to the capability.
  */
-NetworkAddress __cheri_compartment("NetAPI")
+NetworkAddress __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_NETAPI)
   network_socket_udp_authorise_host(Timeout             *timeout,
                                     Socket               socket,
                                     ConnectionCapability hostCapability);
@@ -332,7 +332,7 @@ NetworkAddress __cheri_compartment("NetAPI")
  *  - -ENOTRECOVERABLE: An error occurred and the socket was partially freed or
  *             closed. The operation cannot be retried.
  */
-int __cheri_compartment("TCPIP")
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_close(Timeout            *t,
                        AllocatorCapability mallocCapability,
                        Socket              sealedSocket);
@@ -369,7 +369,7 @@ struct NetworkReceiveResult
  *  - `-ETIMEDOUT`: The timeout was reached before data could be received.
  *  - `-ENOTCONN`: The socket is not connected.
  */
-NetworkReceiveResult __cheri_compartment("TCPIP")
+NetworkReceiveResult __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_receive(Timeout            *timeout,
                          AllocatorCapability mallocCapability,
                          Socket              socket);
@@ -393,7 +393,7 @@ NetworkReceiveResult __cheri_compartment("TCPIP")
  *  - `-ETIMEDOUT`: The timeout was reached before data could be received.
  *  - `-ENOTCONN`: The socket is not connected.
  */
-int __cheri_compartment("TCPIP")
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_receive_preallocated(Timeout *timeout,
                                       Socket   socket,
                                       void    *buffer,
@@ -424,7 +424,7 @@ int __cheri_compartment("TCPIP")
  *  - `-ETIMEDOUT`: The timeout was reached before data could be received.
  *  - `-ENOTCONN`: The socket is not connected.
  */
-NetworkReceiveResult __cheri_compartment("TCPIP")
+NetworkReceiveResult __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_receive_from(Timeout            *timeout,
                               AllocatorCapability mallocCapability,
                               Socket              socket,
@@ -435,10 +435,11 @@ NetworkReceiveResult __cheri_compartment("TCPIP")
  * Send data over a TCP socket.  This will block until the data have been sent
  * or the timeout expires.
  */
-ssize_t __cheri_compartment("TCPIP") network_socket_send(Timeout *timeout,
-                                                         Socket   socket,
-                                                         void    *buffer,
-                                                         size_t   length);
+ssize_t __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
+  network_socket_send(Timeout *timeout,
+                      Socket   socket,
+                      void    *buffer,
+                      size_t   length);
 
 /**
  * Send data over a UDP socket to a specified host / port.  The address and
@@ -449,7 +450,7 @@ ssize_t __cheri_compartment("TCPIP") network_socket_send(Timeout *timeout,
  * This will block until the data have been sent or the timeout expires.  The
  * return value is the number of bytes sent or a negative error code.
  */
-ssize_t __cheri_compartment("TCPIP")
+ssize_t __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_send_to(Timeout              *timeout,
                          Socket                socket,
                          const NetworkAddress *address,
@@ -461,7 +462,7 @@ ssize_t __cheri_compartment("TCPIP")
  * Returns the host name embedded in a host capability or an untagged value if
  * this is not a valid host capability.
  */
-const char *__cheri_compartment("NetAPI")
+const char *__cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_NETAPI)
   network_host_get(ConnectionCapability hostCapability);
 
 /**
@@ -469,4 +470,5 @@ const char *__cheri_compartment("NetAPI")
  *
  * This is disabled unless compiled with the `network-inject-faults` option.
  */
-void __cheri_compartment("TCPIP") network_inject_fault(void);
+void __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
+  network_inject_fault(void);

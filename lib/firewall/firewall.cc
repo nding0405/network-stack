@@ -978,7 +978,8 @@ bool ethernet_send_frame(uint8_t *frame, size_t length)
 	return ethernet.send_frame(frame, length, packet_filter_egress);
 }
 
-void __cheri_compartment("Firewall") ethernet_run_driver()
+void __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_FIREWALL)
+  ethernet_run_driver()
 {
 	// Test the small table (does nothing in release builds).
 	test_small_table();

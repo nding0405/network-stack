@@ -87,7 +87,7 @@ namespace
 	}
 } // namespace
 
-bool __cheri_compartment("TCPIP")
+bool __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_stack_receive_frame(uint8_t *frame, size_t length)
 {
 	return with_restarting_checks_driver(
@@ -181,7 +181,8 @@ NetworkInterface_t *fill_interface_descriptor(BaseType_t          xEMACIndex,
 }
 
 #if CHERIOT_RTOS_OPTION_NETWORK_INJECT_FAULTS
-void __cheri_compartment("TCPIP") network_inject_fault(void)
+void __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
+  network_inject_fault(void)
 {
 	faultInjected = true;
 }

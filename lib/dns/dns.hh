@@ -24,7 +24,8 @@
  *  - `-EAGAIN`: The lookup could not be completed at this time, e.g., because
  *               the DNS server cannot find a record for `hostname`.
  */
-__cheri_compartment("DNS") int network_host_resolve(Timeout        *timeout,
-                                                    const char     *hostname,
-                                                    bool            useIPv6,
-                                                    NetworkAddress *outAddress);
+__cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_DNS) int network_host_resolve(
+  Timeout        *timeout,
+  const char     *hostname,
+  bool            useIPv6,
+  NetworkAddress *outAddress);

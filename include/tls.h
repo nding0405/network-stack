@@ -41,7 +41,7 @@ typedef CHERI_SEALED(struct TLSContext *) TLSConnection;
  *  - The BearSSL types are leaked into the API.
  *  - The reason for the failure is not reported.
  */
-TLSConnection __cheri_compartment("TLS")
+TLSConnection __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TLS)
   tls_connection_create(Timeout                    *t,
                         AllocatorCapability         allocator,
                         ConnectionCapability        connectionCapability,
@@ -74,7 +74,7 @@ enum TLSSendFlags
  * timeout may be exceeded. In the general case, this will block until the data
  * is sent, an error happens, or the timeout expires.
  */
-ssize_t __cheri_compartment("TLS")
+ssize_t __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TLS)
   tls_connection_send(Timeout      *t,
                       TLSConnection sealedConnection,
                       void         *buffer,
@@ -95,7 +95,7 @@ ssize_t __cheri_compartment("TLS")
  *  - `-ETIMEDOUT`: The timeout was reached before data could be received.
  *  - `-ENOMEM`: Memory was insufficient to allocate the receive buffer.
  */
-NetworkReceiveResult __cheri_compartment("TLS")
+NetworkReceiveResult __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TLS)
   tls_connection_receive(Timeout *t, TLSConnection sealedConnection);
 
 /**
@@ -112,7 +112,7 @@ NetworkReceiveResult __cheri_compartment("TLS")
  *  - `-ETIMEDOUT`: The timeout was reached before data could be received.
  *  - `-EPERM`: The receive buffer provided does not feature write permissions.
  */
-int __cheri_compartment("TLS")
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TLS)
   tls_connection_receive_preallocated(Timeout      *t,
                                       TLSConnection sealedConnection,
                                       void         *buffer,
@@ -120,5 +120,5 @@ int __cheri_compartment("TLS")
 /**
  * Close a TLS connection.
  */
-int __cheri_compartment("TLS")
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TLS)
   tls_connection_close(Timeout *t, TLSConnection sealed);

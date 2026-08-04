@@ -8,9 +8,10 @@
 /**
  * Fetch the time with SNTP and return the result in `outTime`.
  */
-int __cheri_compartment("SNTP") sntp_update(TimeoutArgument timeout,
-                                            clock_t        &outTime,
-                                            clock_t        &outMonotonicTime);
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_SNTP)
+  sntp_update(TimeoutArgument timeout,
+              clock_t        &outTime,
+              clock_t        &outMonotonicTime);
 
 struct SNTPWallClockSource
 {

@@ -52,21 +52,24 @@ _Static_assert(sizeof(struct SynchronisedTime) == 24,
  * Update the time using SNTP.  This updates the value stored in the
  * `SynchronisedTime` structure returned by `sntp_time_get()`.
  */
-int __cheri_compartment("SNTP") sntp_update(Timeout *timeout);
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_SNTP)
+  sntp_update(Timeout *timeout);
 
 /**
  * Set the time to given Unix time, without doing a network
  * request. Useful for setting the time from RTC on boot. Returns zero on
  * success, negative on failure (e.g. timeout acquiring lock).
  */
-int __cheri_compartment("SNTP") sntp_time_set_unix(Timeout *t, time_t time);
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_SNTP)
+  sntp_time_set_unix(Timeout *t, time_t time);
 
 /**
  * Returns a read-only pointer to the synchronised time structure.  This can be
  * used to get the current time (modulo clock drift) without a
  * cross-compartment call.
  */
-struct SynchronisedTime *__cheri_compartment("SNTP") sntp_time_get(void);
+struct SynchronisedTime *__cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_SNTP)
+  sntp_time_get(void);
 
 /**
  * Library call to compute a timeval from the previous timeval synchronised

@@ -108,7 +108,7 @@ void ip_cleanup(void)
 
 extern void reset_network_stack_state(bool isIpThread);
 
-void __cheri_compartment("TCPIP") ip_thread_entry(void)
+void __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP) ip_thread_entry(void)
 {
 	FreeRTOS_printf(("ip_thread_entry\n"));
 

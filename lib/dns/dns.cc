@@ -912,7 +912,9 @@ namespace
  * This must be called by the firewall exclusively (checked via rego), before
  * any other API of the DNS resolver.
  */
-__cheri_compartment("DNS") void initialize_dns_resolver(uint8_t *macAddress)
+__cheri_compartment(
+  CHERIOT_NETWORK_COMPARTMENT_DNS) void initialize_dns_resolver(uint8_t
+                                                                  *macAddress)
 {
 	Debug::log("Initializing the DNS resolver.");
 	memcpy(deviceMAC.data(), macAddress, 6);
@@ -932,7 +934,7 @@ __cheri_compartment("DNS") void initialize_dns_resolver(uint8_t *macAddress)
  * This does not currently work with DHCP lease renewal if the address of the
  * gateway changes, but neither does the firewall.
  */
-void __cheri_compartment("DNS")
+void __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_DNS)
   dns_resolver_receive_frame(uint8_t *packet, size_t length)
 {
 	CHERIOT_DURING
@@ -1029,10 +1031,11 @@ void __cheri_compartment("DNS")
  * Resolve `hostname` to an IPv4 or IPv6 address. See documentation in
  * `dns.hh`.
  */
-__cheri_compartment("DNS") int network_host_resolve(Timeout        *timeout,
-                                                    const char     *hostname,
-                                                    bool            useIPv6,
-                                                    NetworkAddress *outAddress)
+__cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_DNS) int network_host_resolve(
+  Timeout        *timeout,
+  const char     *hostname,
+  bool            useIPv6,
+  NetworkAddress *outAddress)
 {
 	CHERIOT_DURING
 	// Do not check the `hostname` and `outAddress` pointers -

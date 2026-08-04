@@ -34,7 +34,7 @@
  *
  * This should be called only from the NetAPI or TCP/IP compartments.
  */
-Socket __cheri_compartment("TCPIP")
+Socket __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_create_and_bind(Timeout            *timeout,
                                  AllocatorCapability mallocCapability,
                                  bool                isIPv6,
@@ -46,7 +46,7 @@ Socket __cheri_compartment("TCPIP")
 /**
  * Connect a TCP socket to the given address.
  */
-int __cheri_compartment("TCPIP")
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_connect_tcp_internal(Timeout       *timeout,
                                       Socket         socket,
                                       NetworkAddress address,
@@ -83,5 +83,5 @@ struct SocketKind
  *
  * This returns zero for success, or a negative value on error.
  */
-int __cheri_compartment("TCPIP")
+int __cheri_compartment(CHERIOT_NETWORK_COMPARTMENT_TCPIP)
   network_socket_kind(Socket socket, SocketKind *kind);
