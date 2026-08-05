@@ -447,8 +447,17 @@ static void on_tcp_connect(Socket_t socket, BaseType_t isConnected)
 		}
 		else
 		{
-			firewall_remove_tcpipv4_remote_endpoint(
-			  address.sin_address.ulIP_IPv4, localPort, address.sin_port);
+			if (socket->u.xTCP.bits.bFinRecv)
+			{
+				// Keep the hole until the final ACK gets out.
+				firewall_mark_tcpipv4_endpoint_pending_removal(
+				  address.sin_address.ulIP_IPv4, localPort, address.sin_port);
+			}
+			else
+			{
+				firewall_remove_tcpipv4_remote_endpoint(
+				  address.sin_address.ulIP_IPv4, localPort, address.sin_port);
+			}
 		}
 	}
 }
@@ -847,6 +856,7 @@ int network_socket_close(Timeout            *t,
 			  if (socketEpoch == currentSocketEpoch.load())
 			  {
 				  bool isTCP = rawSocket->ucProtocol == FREERTOS_IPPROTO_TCP;
+				  bool terminated = false;
 				  // Nothing to do if `FreeRTOS_shutdown`
 				  // fails: this happens only if the TCP
 				  // connection is dead, which is likely to
@@ -861,7 +871,6 @@ int network_socket_close(Timeout            *t,
 					  // termination handshake to happen
 					  // (otherwise we will leave the
 					  // connection dangling).
-					  bool terminated = false;
 					  do
 					  {
 						  auto ret = with_freertos_timeout(
@@ -880,6 +889,7 @@ int network_socket_close(Timeout            *t,
 						  {
 							  Timeout sleep{1};
 							  thread_sleep(&sleep);
+							  t->elapse(sleep.elapsed);
 						  }
 					  } while (!terminated && t->may_block());
 				  }
@@ -947,10 +957,34 @@ int network_socket_close(Timeout            *t,
 						  }
 						  else
 						  {
-							  firewall_remove_tcpipv4_remote_endpoint(
-							    address.sin_address.ulIP_IPv4,
-							    localPort,
-							    address.sin_port);
+							  bool waitingForAck =
+							    terminated &&
+							    firewall_is_tcpipv4_endpoint_pending_removal(
+							      address.sin_address.ulIP_IPv4,
+							      localPort,
+							      address.sin_port);
+
+							  // Wait for the final ACK to close the hole.
+							  while (waitingForAck && t->may_block())
+							  {
+								  Timeout sleep{1};
+								  thread_sleep(&sleep);
+								  t->elapse(sleep.elapsed);
+								  waitingForAck =
+								    firewall_is_tcpipv4_endpoint_pending_removal(
+								      address.sin_address.ulIP_IPv4,
+								      localPort,
+								      address.sin_port);
+							  }
+
+							  // Close holes that were not held for an ACK.
+							  if (!waitingForAck)
+							  {
+								  firewall_remove_tcpipv4_remote_endpoint(
+								    address.sin_address.ulIP_IPv4,
+								    localPort,
+								    address.sin_port);
+							  }
 						  }
 					  }
 					  else

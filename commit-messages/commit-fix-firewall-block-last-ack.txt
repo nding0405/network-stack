@@ -1,0 +1,7 @@
+Firewall: let the final TCP ACK out
+
+The close callback runs before the final ACK is sent. If it closes the
+firewall hole at once, the firewall drops that ACK.
+
+Keep the hole open until the ACK goes out. Make socket close wait until
+the firewall removes the hole.

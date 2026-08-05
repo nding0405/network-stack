@@ -530,6 +530,8 @@ namespace
 		SmallTable<uint16_t>        tcpServerPorts;
 		SmallTable<ConnectionTuple> permittedTCPEndpoints;
 		SmallTable<ConnectionTuple> permittedUDPEndpoints;
+		// Holes kept open for one last ACK.
+		SmallTable<ConnectionTuple> pendingRemovalTCPEndpoints;
 		FlagLockPriorityInherited   permittedEndpointsLock;
 
 		using GuardedTable =
@@ -560,6 +562,11 @@ namespace
 			auto guardedTable = permitted_endpoints(protocol);
 			auto &[g, table]  = guardedTable;
 			table.clear();
+			if (protocol == IPProtocolNumber::TCP)
+			{
+				// Drop old close state too.
+				pendingRemovalTCPEndpoints.clear();
+			}
 			tcpServerPorts.clear();
 		}
 
@@ -575,7 +582,51 @@ namespace
 			auto guardedTable = permitted_endpoints(protocol);
 			auto &[g, table]  = guardedTable;
 			ConnectionTuple tuple{endpoint, localPort, remotePort};
+			if (protocol == IPProtocolNumber::TCP)
+			{
+				// Stop waiting when this hole is closed here.
+				pendingRemovalTCPEndpoints.remove(tuple);
+			}
 			return table.remove(tuple);
+		}
+
+		void mark_tcp_endpoint_pending_removal(Address  remoteAddress,
+		                                       uint16_t localPort,
+		                                       uint16_t remotePort)
+		{
+			LockGuard       g{permittedEndpointsLock};
+			ConnectionTuple tuple{remoteAddress, localPort, remotePort};
+			// Keep a live hole open for its last ACK.
+			if (permittedTCPEndpoints.contains(tuple) &&
+			    !pendingRemovalTCPEndpoints.contains(tuple))
+			{
+				pendingRemovalTCPEndpoints.insert(tuple);
+			}
+		}
+
+		bool is_tcp_endpoint_pending_removal(Address  remoteAddress,
+		                                     uint16_t localPort,
+		                                     uint16_t remotePort)
+		{
+			LockGuard       g{permittedEndpointsLock};
+			ConnectionTuple tuple{remoteAddress, localPort, remotePort};
+			// True while the last ACK still needs this hole.
+			return pendingRemovalTCPEndpoints.contains(tuple);
+		}
+
+		bool consume_tcp_endpoint_pending_removal(Address  remoteAddress,
+		                                          uint16_t localPort,
+		                                          uint16_t remotePort)
+		{
+			LockGuard       g{permittedEndpointsLock};
+			ConnectionTuple tuple{remoteAddress, localPort, remotePort};
+			if (!pendingRemovalTCPEndpoints.contains(tuple))
+			{
+				return false;
+			}
+			// The last ACK used the hole; close it now.
+			pendingRemovalTCPEndpoints.remove(tuple);
+			return permittedTCPEndpoints.remove(tuple);
 		}
 
 		void add_server_port(uint16_t localPort)
@@ -626,6 +677,11 @@ namespace
 			{
 				if (tuple.localPort == localPort)
 				{
+					if (protocol == IPProtocolNumber::TCP)
+					{
+						// Drop any close state for this hole.
+						pendingRemovalTCPEndpoints.remove(tuple);
+					}
 					table.remove(&tuple);
 					break;
 				}
@@ -777,6 +833,17 @@ namespace
 					           static_cast<int>(endpoint >> 8) & 0xff,
 					           static_cast<int>(endpoint >> 16) & 0xff,
 					           static_cast<int>(endpoint >> 24) & 0xff);
+					// Close a held hole after its last ACK gets out.
+					if (!isIngress &&
+					    (ipv4Header->protocol == IPProtocolNumber::TCP) &&
+					    EndpointsTable<uint32_t>::instance()
+					      .consume_tcp_endpoint_pending_removal(
+					        endpoint, localPortNumber, remotePortNumber) &&
+					    EndpointsTable<uint32_t>::instance().is_server_port(
+					      localPortNumber))
+					{
+						currentClientCount--;
+					}
 					return ForwardFlags::ForwardNetworkStack;
 				}
 				// First SYN to a local server port should
@@ -1065,6 +1132,22 @@ void firewall_add_tcpipv4_endpoint(uint32_t remoteAddress,
 {
 	EndpointsTable<uint32_t>::instance().add_endpoint(
 	  IPProtocolNumber::TCP, remoteAddress, localPort, remotePort);
+}
+
+void firewall_mark_tcpipv4_endpoint_pending_removal(uint32_t remoteAddress,
+                                                    uint16_t localPort,
+                                                    uint16_t remotePort)
+{
+	EndpointsTable<uint32_t>::instance().mark_tcp_endpoint_pending_removal(
+	  remoteAddress, localPort, remotePort);
+}
+
+bool firewall_is_tcpipv4_endpoint_pending_removal(uint32_t remoteAddress,
+                                                  uint16_t localPort,
+                                                  uint16_t remotePort)
+{
+	return EndpointsTable<uint32_t>::instance().is_tcp_endpoint_pending_removal(
+	  remoteAddress, localPort, remotePort);
 }
 
 void firewall_add_udpipv4_endpoint(uint32_t remoteAddress,

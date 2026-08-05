@@ -112,6 +112,18 @@ void __cheri_compartment("Firewall")
                                 uint16_t localPort,
                                 uint16_t remotePort);
 
+/** Keep this TCP hole open for the last ACK. */
+void __cheri_compartment("Firewall")
+  firewall_mark_tcpipv4_endpoint_pending_removal(uint32_t remoteAddress,
+                                                 uint16_t localPort,
+                                                 uint16_t remotePort);
+
+/** Return true while this TCP hole waits for its last ACK. */
+bool __cheri_compartment("Firewall")
+  firewall_is_tcpipv4_endpoint_pending_removal(uint32_t remoteAddress,
+                                               uint16_t localPort,
+                                               uint16_t remotePort);
+
 /**
  * Open a hole in the firewall for UDP packets to and from the given endpoint.
  * This permits inbound packets to, and outbound packets from, the specified
