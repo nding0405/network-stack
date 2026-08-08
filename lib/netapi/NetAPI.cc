@@ -263,11 +263,6 @@ network_socket_udp_authorise_host(Timeout             *timeout,
 			Debug::log("IPv6 is not supported");
 			return {NetworkAddress::AddressKindInvalid};
 		}
-		else
-		{
-			firewall_add_udpipv6_endpoint(
-			  address.ipv6, kind.localPort, ntohs(host->port));
-		}
 	}
 	else
 	{
@@ -276,8 +271,13 @@ network_socket_udp_authorise_host(Timeout             *timeout,
 		           (address.ipv4 >> 8) & 0xFF,
 		           (address.ipv4 >> 16) & 0xFF,
 		           (address.ipv4 >> 24) & 0xFF);
-		firewall_add_udpipv4_endpoint(
-		  address.ipv4, kind.localPort, ntohs(host->port));
+	}
+
+	if (network_socket_udp_authorise_host_internal(
+	      timeout, socket, address, kind.localPort, ntohs(host->port)) < 0)
+	{
+		Debug::log("Failed to authorise UDP host");
+		return {NetworkAddress::AddressKindInvalid};
 	}
 
 	return address;

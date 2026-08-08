@@ -51,6 +51,20 @@ int __cheri_compartment("TCPIP")
                                       Socket         socket,
                                       NetworkAddress address,
                                       short          port);
+
+/**
+ * Add a firewall rule while holding the lock on the same UDP socket.
+ *
+ * The ports are in network byte order.  Returns zero on success or a negative
+ * error code on failure.
+ */
+int __cheri_compartment("TCPIP")
+  network_socket_udp_authorise_host_internal(Timeout       *timeout,
+                                             Socket         socket,
+                                             NetworkAddress address,
+                                             uint16_t       localPort,
+                                             uint16_t       remotePort);
+
 /**
  * Information about a socket.
  */

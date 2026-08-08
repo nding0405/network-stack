@@ -785,6 +785,48 @@ Socket network_socket_udp(Timeout            *timeout,
 	  timeout, mallocCapability, isIPv6, ConnectionTypeUDP);
 }
 
+int network_socket_udp_authorise_host_internal(Timeout       *timeout,
+                                               Socket         sealedSocket,
+                                               NetworkAddress address,
+                                               uint16_t       localPort,
+                                               uint16_t       remotePort)
+{
+	return with_sealed_socket(
+	  timeout,
+	  [&](SealedSocket *socket) {
+		  auto *rawSocket = socket->socket;
+		  if ((rawSocket->ucProtocol != FREERTOS_IPPROTO_UDP) ||
+		      (localPort !=
+		       listGET_LIST_ITEM_VALUE(&rawSocket->xBoundSocketListItem)))
+		  {
+			  return -EINVAL;
+		  }
+
+		  if (rawSocket->bits.bIsIPv6)
+		  {
+			  if constexpr (UseIPv6)
+			  {
+				  if (address.kind != NetworkAddress::AddressKindIPv6)
+				  {
+					  return -EINVAL;
+				  }
+				  firewall_add_udpipv6_endpoint(
+				    address.ipv6, localPort, remotePort);
+				  return 0;
+			  }
+			  return -EINVAL;
+		  }
+
+		  if (address.kind != NetworkAddress::AddressKindIPv4)
+		  {
+			  return -EINVAL;
+		  }
+		  firewall_add_udpipv4_endpoint(address.ipv4, localPort, remotePort);
+		  return 0;
+	  },
+	  sealedSocket);
+}
+
 int network_socket_close(Timeout            *t,
                          AllocatorCapability mallocCapability,
                          Socket              sealedSocket)
